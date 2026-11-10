@@ -57,21 +57,10 @@ async def test_get_account_retries_three_times_before_failing() -> None:
 
     assert route.call_count == 3
 
-@respx.mock
-def test_account_endpoint_returns_validated_data() -> None:
-    respx.get("https://accounts.example.test/accounts/acct_001").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "id": "acct_001",
-                "name": "Avery Patel",
-                "status": "active",
-                "tier": "standard",
-            },
-        )
-    )
 
+def test_account_endpoint_returns_database_account() -> None:
     response = TestClient(app).get("/api/v1/accounts/acct_001")
 
     assert response.status_code == 200
-    assert response.json()["id"] == "acct_001"
+    assert response.json()["external_id"] == "acct_001"
+    assert response.json()["name"] == "Avery Patel"

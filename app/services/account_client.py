@@ -1,4 +1,5 @@
 import httpx
+import structlog
 from pydantic import ValidationError
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
@@ -8,9 +9,9 @@ from app.core.exceptions import (
     ExternalServiceUnavailableError,
 )
 from app.schemas.account import AccountResponse
-import structlog
 
 logger = structlog.get_logger(__name__)
+
 
 class AccountClient:
     def __init__(self, base_url: str, timeout_seconds: float = 2.0) -> None:
@@ -80,7 +81,10 @@ class AccountClient:
         if isinstance(error, httpx.TransportError):
             return True
 
-        return (
-            isinstance(error, httpx.HTTPStatusError)
-            and error.response.status_code in {429, 500, 502, 503, 504}
-        )
+        return isinstance(error, httpx.HTTPStatusError) and error.response.status_code in {
+            429,
+            500,
+            502,
+            503,
+            504,
+        }

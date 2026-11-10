@@ -29,6 +29,7 @@ def test_account_response_rejects_missing_tier() -> None:
             }
         )
 
+
 def test_account_can_be_created_from_validated_response() -> None:
     response = AccountResponse(
         id="acct_001",

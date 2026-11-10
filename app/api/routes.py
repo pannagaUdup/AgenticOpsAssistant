@@ -1,43 +1,29 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.exceptions import (
-    ExternalServiceInvalidResponseError,
-    ExternalServiceTimeoutError,
-    ExternalServiceUnavailableError,
-)
-from app.schemas.account import AccountResponse
-from app.services.account_client import AccountClient
+from app.db.session import get_db_session
+from app.repositories.account_repository import get_account_by_external_id
+from app.schemas.account import AccountRead
 
 router = APIRouter(prefix="/api/v1", tags=["accounts"])
 
 
-def get_account_client() -> AccountClient:
-    settings = get_settings()
-    return AccountClient(base_url=settings.account_service_base_url)
-
-
-@router.get("/accounts/{account_id}", response_model=AccountResponse)
+@router.get(
+    "/accounts/{external_id}",
+    response_model=AccountRead,
+)
 async def get_account(
-    account_id: str,
-    client: Annotated[AccountClient, Depends(get_account_client)],
-) -> AccountResponse:
-    try:
-        return await client.get_account(account_id)
-    except ExternalServiceTimeoutError as error:
+    external_id: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> AccountRead:
+    account = await get_account_by_external_id(session, external_id)
+
+    if account is None:
         raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=str(error),
-        ) from error
-    except ExternalServiceUnavailableError as error:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(error),
-        ) from error
-    except ExternalServiceInvalidResponseError as error:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(error),
-        ) from error
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Account {external_id} not found",
+        )
+
+    return account

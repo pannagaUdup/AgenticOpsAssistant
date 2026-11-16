@@ -1,13 +1,20 @@
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.dependencies import get_llm_provider
 from app.db.session import get_db_session
+from app.llm.provider import LLMProvider
 from app.repositories.account_repository import get_account_by_external_id
 from app.schemas.account import AccountRead
+from app.schemas.ai import InvestigationRequest, InvestigationState
+from app.services.investigation import InvestigationService
+from app.tools.read_tools import build_read_tool_registry
 
 router = APIRouter(prefix="/api/v1", tags=["accounts"])
+logger = structlog.get_logger(__name__)
 
 
 @router.get(
@@ -27,3 +34,26 @@ async def get_account(
         )
 
     return account
+
+
+@router.post("/investigations", response_model=InvestigationState, tags=["investigations"])
+async def investigate(
+    request: InvestigationRequest,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    provider: Annotated[LLMProvider, Depends(get_llm_provider)],
+) -> InvestigationState:
+    """Run one bounded investigation and return its trace for debugging."""
+    logger.info("investigation_started", account_id=request.account_id, question=request.question)
+    service = InvestigationService(
+        provider=provider,
+        tool_registry=build_read_tool_registry(session),
+    )
+    state = await service.investigate(request)
+    logger.info(
+        "investigation_completed",
+        investigation_id=state.investigation_id,
+        intent=state.routing.intent.value if state.routing else None,
+        tool_calls=len(state.tool_calls),
+        completed=state.completed,
+    )
+    return state

@@ -105,6 +105,15 @@ class RecommendationResponse(BaseModel):
     limitations: list[str] = Field(default_factory=list)
 
 
+class AgentTurn(BaseModel):
+    tool_call: ToolCall | None = None
+    final_response: RecommendationResponse | None = None
+
+    def model_post_init(self, __context: object) -> None:
+        if (self.tool_call is None) == (self.final_response is None):
+            raise ValueError("AgentTurn must contain exactly one of tool_call or final_response")
+
+
 class ApprovalRequest(BaseModel):
     recommendation_id: str = Field(min_length=1)
     account_id: str = Field(min_length=1)

@@ -1,10 +1,13 @@
 from pydantic import BaseModel
 
-from app.schemas.ai import RecommendationResponse, ToolName
+from app.schemas.ai import AgentTurn, RecommendationResponse, ToolName
 
 
 class FakeLLMProvider:
     """Deterministic provider used to test orchestration without a model API."""
+
+    def __init__(self, responses: list[BaseModel] | None = None) -> None:
+        self._responses = list(responses or [])
 
     async def generate_structured(
         self,
@@ -16,10 +19,22 @@ class FakeLLMProvider:
     ) -> BaseModel:
         del system_prompt, user_prompt, tools
 
+        if self._responses:
+            response = self._responses.pop(0)
+            return response_model.model_validate(response.model_dump())
+
+        if response_model is AgentTurn:
+            recommendation = self._recommendation()
+            return response_model.model_validate({"final_response": recommendation})
+
         if response_model is not RecommendationResponse:
             raise ValueError("FakeLLMProvider currently supports RecommendationResponse only")
 
-        return response_model.model_validate(
+        return self._recommendation()
+
+    @staticmethod
+    def _recommendation() -> RecommendationResponse:
+        return RecommendationResponse.model_validate(
             {
                 "summary": "Synthetic account investigation completed.",
                 "recommendation": "Review the latest interaction and follow the applicable policy.",

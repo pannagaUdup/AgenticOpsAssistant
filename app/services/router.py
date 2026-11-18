@@ -5,18 +5,29 @@ from app.schemas.ai import (
     RoutingDecision,
     ToolName,
 )
-from app.services.classifier import HybridIntentClassifier, SemanticIntentClassifier
+from app.services.classifier import (
+    AsyncSemanticIntentClassifier,
+    HybridIntentClassifier,
+    SemanticIntentClassifier,
+)
 
 
 class RequestRouter:
     """Selects a bounded workflow before any model or tool call is made."""
 
-    def __init__(self, classifier: SemanticIntentClassifier | None = None) -> None:
+    def __init__(
+        self,
+        classifier: SemanticIntentClassifier | None = None,
+        async_classifier: AsyncSemanticIntentClassifier | None = None,
+    ) -> None:
         self._classifier = HybridIntentClassifier(classifier)
+        self._async_classifier = async_classifier
 
     def route(self, request: InvestigationRequest) -> RoutingDecision:
         intent = self._classifier.classify(request).intent
+        return self._route_from_intent(intent, request)
 
+    def _route_from_intent(self, intent: Intent, request: InvestigationRequest) -> RoutingDecision:
         if intent is Intent.ACCOUNT_LOOKUP:
             return self._decision(
                 intent=intent,
@@ -83,6 +94,15 @@ class RequestRouter:
             requires_approval=False,
             max_tool_calls=0,
         )
+
+    async def route_async(self, request: InvestigationRequest) -> RoutingDecision:
+        classification = await self._classifier.classify_async(request, self._async_classifier)
+        return self._decision_for_intent(classification.intent, request)
+
+    def _decision_for_intent(
+        self, intent: Intent, request: InvestigationRequest
+    ) -> RoutingDecision:
+        return self._route_from_intent(intent, request)
 
     @staticmethod
     def _decision(

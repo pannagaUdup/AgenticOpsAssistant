@@ -8,6 +8,11 @@ class SemanticIntentClassifier(Protocol):
         """Classify ambiguous natural-language requests."""
 
 
+class AsyncSemanticIntentClassifier(Protocol):
+    async def classify(self, request: InvestigationRequest) -> IntentClassification:
+        """Classify ambiguous requests using an asynchronous model call."""
+
+
 class KeywordIntentClassifier:
     """High-precision baseline classifier for obvious requests."""
 
@@ -65,6 +70,28 @@ class HybridIntentClassifier:
         if semantic_result.confidence >= self._minimum_confidence:
             return semantic_result
 
+        return IntentClassification(
+            intent=Intent.UNSUPPORTED,
+            confidence=semantic_result.confidence,
+            source="low_confidence_fallback",
+        )
+
+    async def classify_async(
+        self,
+        request: InvestigationRequest,
+        semantic_classifier: AsyncSemanticIntentClassifier | None = None,
+    ) -> IntentClassification:
+        safety_result = self._classify_side_effect(request.question)
+        if safety_result is not None:
+            return safety_result
+        keyword_result = self._keyword_classifier.classify(request)
+        if keyword_result.intent is not Intent.UNSUPPORTED:
+            return keyword_result
+        if semantic_classifier is None:
+            return keyword_result
+        semantic_result = await semantic_classifier.classify(request)
+        if semantic_result.confidence >= self._minimum_confidence:
+            return semantic_result
         return IntentClassification(
             intent=Intent.UNSUPPORTED,
             confidence=semantic_result.confidence,

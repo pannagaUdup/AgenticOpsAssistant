@@ -34,7 +34,7 @@ class InvestigationService:
         self._prompt_registry = prompt_registry or PromptRegistry()
 
     async def investigate(self, request: InvestigationRequest) -> InvestigationState:
-        routing = self._router.route(request)
+        routing = await self._router.route_async(request)
         state = InvestigationState(
             investigation_id=str(uuid4()),
             request=request,
@@ -45,7 +45,13 @@ class InvestigationService:
         if routing.intent is Intent.ACCOUNT_LOOKUP:
             return await self._direct_account_lookup(state, request, prompt.content)
 
-        conversation = request.question
+        conversation = json.dumps(
+            {
+                "account_id": request.account_id,
+                "question": request.question,
+                "requested_action": request.requested_action,
+            }
+        )
         seen_calls: set[tuple[str, str]] = set()
 
         for _ in range(routing.max_tool_calls + 1):
@@ -61,7 +67,9 @@ class InvestigationService:
                 state.completed = True
                 return state
 
-            tool_call = self._require_tool_call(turn)
+            tool_call = self._bind_account_context(
+                self._require_tool_call(turn), request.account_id
+            )
             call_key = (tool_call.tool_name.value, json.dumps(tool_call.arguments, sort_keys=True))
             if call_key in seen_calls:
                 state.recommendation = self._failure_recommendation(
@@ -80,8 +88,16 @@ class InvestigationService:
             state.tool_results.append(result)
             conversation = json.dumps(
                 {
+                    "account_id": request.account_id,
                     "original_question": request.question,
-                    "latest_tool_result": result.model_dump(mode="json"),
+                    "completed_tool_calls": [
+                        call.model_dump(mode="json") for call in state.tool_calls
+                    ],
+                    "tool_results": [item.model_dump(mode="json") for item in state.tool_results],
+                    "instruction": (
+                        "Do not repeat a completed tool call. Use the accumulated evidence "
+                        "to make another required tool call or return the final response."
+                    ),
                 }
             )
 
@@ -135,6 +151,17 @@ class InvestigationService:
         if turn.tool_call is None:
             raise RuntimeError("Agent turn contained neither a tool call nor a final response")
         return turn.tool_call
+
+    @staticmethod
+    def _bind_account_context(tool_call: ToolCall, account_id: str) -> ToolCall:
+        """Bind account-scoped tools to the request boundary, regardless of model arguments."""
+        if tool_call.tool_name not in {
+            ToolName.GET_ACCOUNT,
+            ToolName.GET_INTERACTION_HISTORY,
+        }:
+            return tool_call
+        arguments = {**tool_call.arguments, "account_id": account_id}
+        return tool_call.model_copy(update={"arguments": arguments})
 
     @staticmethod
     def _failure_recommendation(reason: str) -> RecommendationResponse:

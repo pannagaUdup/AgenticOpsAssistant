@@ -25,4 +25,5 @@ dependencies = [
     "asyncpg",
     "alembic",
     "openai",
+    "google-genai",
 ]

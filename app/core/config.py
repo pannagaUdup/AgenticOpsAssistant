@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     database_url: str
     openai_api_key: SecretStr | None = None
     openai_model: str = "gpt-4o-mini"
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-2.5-flash-lite"
     llm_provider: str = "fake"
 
 
